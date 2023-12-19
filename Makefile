@@ -58,6 +58,9 @@ generate-verify: generate
 	./hack/verify-generate.sh
 	./hack/check-for-binaries.sh
 
+gen-proto:
+	${DO_BAZ} "DOCKER_PREFIX=${DOCKER_PREFIX} DOCKER_TAG=${DOCKER_TAG} IMAGE_PULL_POLICY=${IMAGE_PULL_POLICY} VERBOSITY=${VERBOSITY} ./hack/gen-proto.sh"
+
 cluster-up:
 	eval "KUBEVIRT_RELEASE=${KUBEVIRT_RELEASE} ./cluster-up/up.sh"
 

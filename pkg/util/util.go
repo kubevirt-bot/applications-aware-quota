@@ -22,6 +22,7 @@ import (
 	"runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"strings"
+	"time"
 )
 
 var (
@@ -69,15 +70,16 @@ const (
 	// TlsLabel provides a constant to capture our env variable "TLS"
 	TlsLabel = "TLS"
 	// ConfigMapName is the name of the aaq configmap that own aaq resources
-	ConfigMapName                                            = "aaq-config"
-	OperatorServiceAccountName                               = "aaq-operator"
-	AAQGate                                                  = "ApplicationsAwareQuotaGate"
-	ControllerResourceName                                   = ControllerPodName
-	SecretResourceName                                       = "aaq-server-cert"
-	AaqServerResourceName                                    = "aaq-server"
-	ControllerClusterRoleName                                = ControllerPodName
-	DefaultLauncherConfig      aaqv1alpha1.VmiCalcConfigName = aaqv1alpha1.VmiPodUsage
-	LauncherConfig                                           = "launcherConfig"
+	ConfigMapName                         = "aaq-config"
+	OperatorServiceAccountName            = "aaq-operator"
+	AAQGate                               = "ApplicationsAwareQuotaGate"
+	ControllerResourceName                = ControllerPodName
+	SecretResourceName                    = "aaq-server-cert"
+	AaqServerResourceName                 = "aaq-server"
+	ControllerClusterRoleName             = ControllerPodName
+	SidecarEvaluatorsNumberFlag           = "evaluators-sidecars"
+	SocketsSharedDirectory                = "/var/run/aaq-sockets"
+	DefaultSidecarsEvaluatorsStartTimeout = 2 * time.Minute
 )
 
 var commonLabels = map[string]string{

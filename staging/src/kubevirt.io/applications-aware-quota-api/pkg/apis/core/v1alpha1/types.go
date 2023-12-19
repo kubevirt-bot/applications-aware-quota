@@ -82,6 +82,42 @@ type AAQ struct {
 	Status AAQStatus `json:"status"`
 }
 
+// AAQSpec defines our specification for the AAQ installation
+type AAQSpec struct {
+	// +kubebuilder:validation:Enum=Always;IfNotPresent;Never
+	// PullPolicy describes a policy for if/when to pull a container image
+	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty" valid:"required"`
+	// Rules on which nodes AAQ infrastructure pods will be scheduled
+	Infra sdkapi.NodePlacement `json:"infra,omitempty"`
+	// Restrict on which nodes AAQ workload pods will be scheduled
+	Workloads sdkapi.NodePlacement `json:"workload,omitempty"`
+	// certificate configuration
+	CertConfig *AAQCertConfig `json:"certConfig,omitempty"`
+	// PriorityClass of the AAQ control plane
+	PriorityClass *AAQPriorityClass `json:"priorityClass,omitempty"`
+	// namespaces where pods should be gated before scheduling
+	// Default to the empty LabelSelector, which matches everything.
+	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
+	// holds aaq configurations.
+	Configuration AAQConfiguration `json:"configuration,omitempty"`
+}
+
+// AAQConfiguration holds all AAQ configurations
+type AAQConfiguration struct {
+	SidecarEvaluators []corev1.Container `json:"sidecarEvaluators,omitempty"`
+}
+
+// AAQPriorityClass defines the priority class of the AAQ control plane.
+type AAQPriorityClass string
+
+// AAQPhase is the current phase of the AAQ deployment
+type AAQPhase string
+
+// AAQStatus defines the status of the installation
+type AAQStatus struct {
+	sdkapi.Status `json:",inline"`
+}
+
 // CertConfig contains the tunables for TLS certificates
 type CertConfig struct {
 	// The requested 'duration' (i.e. lifetime) of the Certificate.
@@ -127,68 +163,6 @@ type AAQJobQueueConfigSpec struct {
 type AAQJobQueueConfigStatus struct {
 	// BuiltInCalculationConfigToApply
 	PodsInJobQueue []string `json:"podsInJobQueue,omitempty"`
-}
-
-// AAQSpec defines our specification for the AAQ installation
-type AAQSpec struct {
-	// +kubebuilder:validation:Enum=Always;IfNotPresent;Never
-	// PullPolicy describes a policy for if/when to pull a container image
-	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty" valid:"required"`
-	// Rules on which nodes AAQ infrastructure pods will be scheduled
-	Infra sdkapi.NodePlacement `json:"infra,omitempty"`
-	// Restrict on which nodes AAQ workload pods will be scheduled
-	Workloads sdkapi.NodePlacement `json:"workload,omitempty"`
-	// certificate configuration
-	CertConfig *AAQCertConfig `json:"certConfig,omitempty"`
-	// PriorityClass of the AAQ control plane
-	PriorityClass *AAQPriorityClass `json:"priorityClass,omitempty"`
-	// namespaces where pods should be gated before scheduling
-	// Default to the empty LabelSelector, which matches everything.
-	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
-	// holds aaq configurations.
-	Configuration AAQConfiguration `json:"configuration,omitempty"`
-}
-
-// AAQConfiguration holds all AAQ configurations
-type AAQConfiguration struct {
-	// VmiCalculatorConfiguration Default is VmiPodUsage please look for VmiCalculatorConfiguration type for more information.
-	VmiCalculatorConfiguration VmiCalculatorConfiguration `json:"vmiCalculatorConfiguration,omitempty"`
-}
-
-type VmiCalcConfigName string
-
-type VmiCalculatorConfiguration struct {
-	ConfigName VmiCalcConfigName `json:"configName,omitempty"`
-}
-
-const (
-	// VmiPodUsage Calculate usage of launcher like any other pod but hide migration additional resources
-	VmiPodUsage VmiCalcConfigName = "VmiPodUsage"
-	// VirtualResources Calculate memory.request/limits as the vmi's ram size and cpu.request/limits as number of threads of vmi
-	VirtualResources VmiCalcConfigName = "VirtualResources"
-	// DedicatedVirtualResources Calculate vmi.requests.memory as the vmi's ram size and vmi.requests.cpu as number of threads of vmi
-	// in this configuration no memory.request/limits and cpu.request/limits won't be included
-	DedicatedVirtualResources VmiCalcConfigName = "DedicatedVirtualResources"
-	// in this configuration no memory.request/limits and cpu.request/limits won't be included
-	IgnoreVmiCalculator VmiCalcConfigName = "IgnoreVmiCalculator"
-	//VirtualResources:
-	// ResourcePodsOfVmi Launcher Pods, number.
-	ResourcePodsOfVmi corev1.ResourceName = "requests.instances/vmi"
-	// Vmi CPUs, Total Threads number(Cores*Sockets*Threads).
-	ResourceRequestsVmiCPU corev1.ResourceName = "requests.cpu/vmi"
-	// Vmi Memory Ram Size, in bytes. (500Gi = 500GiB = 500 * 1024 * 1024 * 1024)
-	ResourceRequestsVmiMemory corev1.ResourceName = "requests.memory/vmi"
-)
-
-// AAQPriorityClass defines the priority class of the AAQ control plane.
-type AAQPriorityClass string
-
-// AAQPhase is the current phase of the AAQ deployment
-type AAQPhase string
-
-// AAQStatus defines the status of the installation
-type AAQStatus struct {
-	sdkapi.Status `json:",inline"`
 }
 
 // AAQList provides the needed parameters to do request a list of AAQ from the system

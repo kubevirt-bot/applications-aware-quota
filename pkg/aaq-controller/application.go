@@ -20,8 +20,10 @@ package aaq_controller
 
 import (
 	"context"
+	goflag "flag"
 	"fmt"
 	"github.com/emicklei/go-restful/v3"
+	flag "github.com/spf13/pflag"
 	"io/ioutil"
 	k8sv1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,12 +34,9 @@ import (
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/clock"
-	aaq_evaluator "kubevirt.io/applications-aware-quota/pkg/aaq-controller/aaq-evaluator"
+	"kubevirt.io/applications-aware-quota/pkg/aaq-controller/aaq-evaluator"
 	arq_controller2 "kubevirt.io/applications-aware-quota/pkg/aaq-controller/aaq-gate-controller"
 	"kubevirt.io/applications-aware-quota/pkg/aaq-controller/arq-controller"
-	built_in_usage_calculators "kubevirt.io/applications-aware-quota/pkg/aaq-controller/built-in-usage-calculators"
-	configuration_controller "kubevirt.io/applications-aware-quota/pkg/aaq-controller/configuration-controller"
 	"kubevirt.io/applications-aware-quota/pkg/aaq-controller/leaderelectionconfig"
 	rq_controller "kubevirt.io/applications-aware-quota/pkg/aaq-controller/rq-controller"
 	"kubevirt.io/applications-aware-quota/pkg/certificates/bootstrap"
@@ -51,35 +50,33 @@ import (
 )
 
 type AaqControllerApp struct {
-	ctx                          context.Context
-	aaqNs                        string
-	host                         string
-	LeaderElection               leaderelectionconfig.Configuration
-	aaqCli                       client.AAQClient
-	arqController                *arq_controller.ArqController
-	aaqGateController            *arq_controller2.AaqGateController
-	rqController                 *rq_controller.RQController
-	configController             *configuration_controller.AaqConfigurationController
-	podInformer                  cache.SharedIndexInformer
-	arqInformer                  cache.SharedIndexInformer
-	aaqInformer                  cache.SharedIndexInformer
-	rqInformer                   cache.SharedIndexInformer
-	aaqjqcInformer               cache.SharedIndexInformer
-	calcRegistry                 *aaq_evaluator.AaqCalculatorsRegistry
-	readyChan                    chan bool
-	enqueueAllArgControllerChan  chan struct{}
-	enqueueAllGateControllerChan chan struct{}
-	leaderElector                *leaderelection.LeaderElector
+	ctx               context.Context
+	aaqNs             string
+	host              string
+	LeaderElection    leaderelectionconfig.Configuration
+	aaqCli            client.AAQClient
+	arqController     *arq_controller.ArqController
+	aaqGateController *arq_controller2.AaqGateController
+	rqController      *rq_controller.RQController
+	podInformer       cache.SharedIndexInformer
+	arqInformer       cache.SharedIndexInformer
+	aaqInformer       cache.SharedIndexInformer
+	rqInformer        cache.SharedIndexInformer
+	aaqjqcInformer    cache.SharedIndexInformer
+	calcRegistry      *aaq_evaluator.AaqEvaluatorsRegistry
+	readyChan         chan bool
+	leaderElector     *leaderelection.LeaderElector
 }
 
 func Execute() {
+	flag.CommandLine.AddGoFlag(goflag.CommandLine.Lookup("v"))
+	numberOfRequestedEvaluatorsSidecars := flag.Uint(util.SidecarEvaluatorsNumberFlag, 0, "number of requested evaluators sidecars")
+	flag.Parse()
 	var err error
 	var app = AaqControllerApp{}
 
 	app.LeaderElection = leaderelectionconfig.DefaultLeaderElectionConfiguration()
 	app.readyChan = make(chan bool, 1)
-	app.enqueueAllArgControllerChan = make(chan struct{})
-	app.enqueueAllGateControllerChan = make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	app.ctx = ctx
@@ -108,14 +105,18 @@ func Execute() {
 	app.podInformer = informers.GetPodInformer(app.aaqCli)
 	app.aaqInformer = informers.GetAAQInformer(app.aaqCli)
 
-	stop := ctx.Done()
-	app.calcRegistry = aaq_evaluator.NewAaqCalculatorsRegistry(10, clock.RealClock{}).AddBuiltInCalculator(util.LauncherConfig, built_in_usage_calculators.NewVirtLauncherCalculator(stop))
+	// Block until all requested evaluatorsSidecars are ready
+	evaluatorsRegistry := aaq_evaluator.GetAaqEvaluatorsRegistry()
+	err = evaluatorsRegistry.Collect(*numberOfRequestedEvaluatorsSidecars, util.DefaultSidecarsEvaluatorsStartTimeout)
+	if err != nil {
+		panic(err)
+	}
 
+	app.calcRegistry = aaq_evaluator.GetAaqEvaluatorsRegistry()
+	stop := ctx.Done()
 	app.initArqController(stop)
 	app.initAaqGateController(stop)
 	app.initRQController(stop)
-	app.initAaqConfigurationController(stop)
-
 	app.Run(stop)
 
 	klog.V(2).Infoln("AAQ controller exited")
@@ -149,7 +150,6 @@ func (mca *AaqControllerApp) initArqController(stop <-chan struct{}) {
 		mca.aaqjqcInformer,
 		mca.calcRegistry,
 		stop,
-		mca.enqueueAllArgControllerChan,
 	)
 }
 
@@ -160,7 +160,6 @@ func (mca *AaqControllerApp) initAaqGateController(stop <-chan struct{}) {
 		mca.aaqjqcInformer,
 		mca.calcRegistry,
 		stop,
-		mca.enqueueAllGateControllerChan,
 	)
 }
 
@@ -169,16 +168,6 @@ func (mca *AaqControllerApp) initRQController(stop <-chan struct{}) {
 		mca.rqInformer,
 		mca.arqInformer,
 		stop,
-	)
-}
-
-func (mca *AaqControllerApp) initAaqConfigurationController(stop <-chan struct{}) {
-	mca.configController = configuration_controller.NewAaqConfigurationController(mca.aaqCli,
-		mca.aaqInformer,
-		mca.calcRegistry,
-		stop,
-		mca.enqueueAllArgControllerChan,
-		mca.enqueueAllGateControllerChan,
 	)
 }
 
@@ -281,9 +270,6 @@ func (mca *AaqControllerApp) onStartedLeading() func(ctx context.Context) {
 		}()
 		go func() {
 			mca.rqController.Run(3)
-		}()
-		go func() {
-			mca.configController.Run(context.Background(), 1)
 		}()
 		close(mca.readyChan)
 	}

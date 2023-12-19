@@ -34,34 +34,31 @@ const (
 )
 
 type AaqGateController struct {
-	podInformer                  cache.SharedIndexInformer
-	arqInformer                  cache.SharedIndexInformer
-	aaqjqcInformer               cache.SharedIndexInformer
-	arqQueue                     workqueue.RateLimitingInterface
-	aaqCli                       client.AAQClient
-	aaqEvaluator                 *aaq_evaluator.AaqEvaluator
-	stop                         <-chan struct{}
-	enqueueAllGateControllerChan <-chan struct{}
+	podInformer    cache.SharedIndexInformer
+	arqInformer    cache.SharedIndexInformer
+	aaqjqcInformer cache.SharedIndexInformer
+	arqQueue       workqueue.RateLimitingInterface
+	aaqCli         client.AAQClient
+	aaqEvaluator   *aaq_evaluator.AaqEvaluator
+	stop           <-chan struct{}
 }
 
 func NewAaqGateController(aaqCli client.AAQClient,
 	podInformer cache.SharedIndexInformer,
 	arqInformer cache.SharedIndexInformer,
 	aaqjqcInformer cache.SharedIndexInformer,
-	calcRegistry *aaq_evaluator.AaqCalculatorsRegistry,
+	calcRegistry *aaq_evaluator.AaqEvaluatorsRegistry,
 	stop <-chan struct{},
-	enqueueAllGateControllerChan <-chan struct{},
 ) *AaqGateController {
 
 	ctrl := AaqGateController{
-		aaqCli:                       aaqCli,
-		aaqjqcInformer:               aaqjqcInformer,
-		podInformer:                  podInformer,
-		arqInformer:                  arqInformer,
-		arqQueue:                     workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "arq-queue"),
-		aaqEvaluator:                 aaq_evaluator.NewAaqEvaluator(podInformer, calcRegistry, clock.RealClock{}),
-		stop:                         stop,
-		enqueueAllGateControllerChan: enqueueAllGateControllerChan,
+		aaqCli:         aaqCli,
+		aaqjqcInformer: aaqjqcInformer,
+		podInformer:    podInformer,
+		arqInformer:    arqInformer,
+		arqQueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "arq-queue"),
+		aaqEvaluator:   aaq_evaluator.NewAaqEvaluator(podInformer, calcRegistry, clock.RealClock{}),
+		stop:           stop,
 	}
 
 	_, err := ctrl.podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -315,18 +312,6 @@ func (ctrl *AaqGateController) Run(ctx context.Context, threadiness int) {
 	defer klog.Info("Shutting down Arq controller")
 	defer ctrl.arqQueue.ShutDown()
 
-	// Start a goroutine to listen for enqueue signals and call enqueueAll in case the configuration is changed.
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ctrl.enqueueAllGateControllerChan:
-				log.Log.Infof("AaqGateController: Signal processed enqueued All")
-				ctrl.enqueueAll()
-			}
-		}
-	}()
 	for i := 0; i < threadiness; i++ {
 		go wait.Until(ctrl.runWorker, time.Second, ctrl.stop)
 	}
