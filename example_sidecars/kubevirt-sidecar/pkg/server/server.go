@@ -12,8 +12,8 @@ import (
 	"k8s.io/kubernetes/pkg/quota/v1/evaluator/core"
 	"k8s.io/utils/clock"
 	v15 "kubevirt.io/api/core/v1"
-	"kubevirt.io/applications-aware-quota/pkg/client"
-	"kubevirt.io/applications-aware-quota/pkg/log"
+	"kubevirt.io/client-go/kubecli"
+	"kubevirt.io/client-go/log"
 )
 
 const (
@@ -78,18 +78,23 @@ type VmiCalcConfigName string
 var MyConfigs = []VmiCalcConfigName{VmiPodUsage, VirtualResources, DedicatedVirtualResources}
 
 func NewVirtLauncherCalculator(config string) *VirtLauncherCalculator {
-	aaqCli, err := client.GetAAQClient()
+	clientConfig, err := kubecli.GetKubevirtClientConfig()
 	if err != nil {
-		panic("NewVirtLauncherCalculator: couldn't get aaqCli")
+		panic("NewVirtLauncherCalculator: couldn't get clientConfig")
 	}
+	virtCli, err := kubecli.GetKubevirtClientFromRESTConfig(clientConfig)
+	if err != nil {
+		panic("NewVirtLauncherCalculator: couldn't get virtCli")
+	}
+
 	return &VirtLauncherCalculator{
-		aaqCli:     aaqCli,
+		virtCli:    virtCli,
 		calcConfig: VmiCalcConfigName(config),
 	}
 }
 
 type VirtLauncherCalculator struct {
-	aaqCli     client.AAQClient
+	virtCli    kubecli.KubevirtClient
 	calcConfig VmiCalcConfigName
 }
 
@@ -99,13 +104,13 @@ func (launchercalc *VirtLauncherCalculator) PodUsageFunc(pod corev1.Pod, items [
 		return corev1.ResourceList{}, nil, false
 	}
 
-	vmi, err := launchercalc.aaqCli.KubevirtClient().KubevirtV1().VirtualMachineInstances(pod.Namespace).Get(context.Background(), pod.OwnerReferences[0].Name, metav1.GetOptions{})
+	vmi, err := launchercalc.virtCli.VirtualMachineInstance(pod.Namespace).Get(context.Background(), pod.OwnerReferences[0].Name, &metav1.GetOptions{})
 	if err != nil {
 		log.Log.Infof("couldn't get vmi %v err: %v\n", pod.OwnerReferences[0].Name, err.Error())
 		return corev1.ResourceList{}, fmt.Errorf("couldn't get vmi %v err: %v", pod.OwnerReferences[0].Name, err.Error()), false
 	}
 
-	launcherPods := unfinishedVMIPods(launchercalc.aaqCli, items, vmi)
+	launcherPods := unfinishedVMIPods(launchercalc.virtCli, items, vmi)
 
 	if !podExists(launcherPods, &pod) { //sanity check
 		log.Log.Infof("can't detect pod as launcher pod pod.name: %v\n", pod.Name)
@@ -120,16 +125,6 @@ func (launchercalc *VirtLauncherCalculator) PodUsageFunc(pod corev1.Pod, items [
 
 	sourcePod := getSourcePod(launcherPods, vmi)
 	targetPod := getTargetPod(launcherPods, migration)
-
-	if sourcePod == nil { //check only source because target might be gated
-		var launcherPodsForErr []string
-		for _, pod := range launcherPods {
-			launcherPodsForErr = append(launcherPodsForErr, pod.Name)
-		}
-		errMsg := fmt.Sprintf("something is wrong could not detect source pod launcherPods in ns: %v  source == nil: %v ", launcherPodsForErr, sourcePod == nil)
-		log.Log.Warningf(errMsg)
-		return corev1.ResourceList{}, fmt.Errorf(errMsg), true
-	}
 
 	sourceResources, err := launchercalc.calculateSourceUsageByConfig(&pod, vmi)
 	if err != nil {
@@ -294,7 +289,7 @@ func getNumberOfVCPUs(cpuSpec *v15.CPUTopology) int64 {
 	return int64(vCPUs)
 }
 
-func unfinishedVMIPods(aaqCli client.AAQClient, pods []corev1.Pod, vmi *v15.VirtualMachineInstance) (podsToReturn []*corev1.Pod) {
+func unfinishedVMIPods(aaqCli kubecli.KubevirtClient, pods []corev1.Pod, vmi *v15.VirtualMachineInstance) (podsToReturn []*corev1.Pod) {
 	if pods == nil {
 		podsList, err := aaqCli.CoreV1().Pods(vmi.Namespace).List(context.Background(), metav1.ListOptions{})
 		if err != nil {
@@ -342,7 +337,7 @@ func podExists(pods []*corev1.Pod, targetPod *corev1.Pod) bool {
 }
 
 func (launchercalc *VirtLauncherCalculator) getLatestVmimIfExist(vmi *v15.VirtualMachineInstance, ns string) (*v15.VirtualMachineInstanceMigration, error) {
-	vmimList, err := launchercalc.aaqCli.KubevirtClient().KubevirtV1().VirtualMachineInstanceMigrations(ns).List(context.Background(), metav1.ListOptions{})
+	vmimList, err := launchercalc.virtCli.VirtualMachineInstanceMigration(ns).List(&metav1.ListOptions{})
 	if err != nil {
 		log.Log.Infof("couldn't list VirtualMachineInstanceMigrations in ns:%v err:%v\n", ns, err.Error())
 		return nil, fmt.Errorf("can't fetch migrations")
